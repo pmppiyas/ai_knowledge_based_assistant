@@ -24,6 +24,11 @@ export class RagController {
     }),
   )
   async uploadPdf(@UploadedFile() file: any): Promise<any> {
-    return this.ragService.processPdf(file.path);
+    const result = await this.ragService.processPdf(file.path);
+    return {
+      success: true,
+      message: 'PDF processed and stored successfully',
+      data: result,
+    };
   }
 }

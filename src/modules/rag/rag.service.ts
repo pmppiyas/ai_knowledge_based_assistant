@@ -30,8 +30,8 @@ export class RagService {
     }));
 
     const embeddings = new OllamaEmbeddings({
-      model: 'nomic-embed-text:latest',
-      baseUrl: 'http://localhost:11434',
+      model: ENV.EMBEDDING_MODEL,
+      baseUrl: ENV.EMBEDD_BASE_URL,
     });
 
     const vectors = (
@@ -56,8 +56,6 @@ export class RagService {
       )
     ).filter((v): v is NonNullable<typeof v> => v !== null);
 
-    console.log('Generated vectors:', vectors.length);
-
     if (vectors.length === 0) {
       throw new Error(
         'No valid vectors generated — check your embedding model.',
@@ -72,10 +70,7 @@ export class RagService {
 
     await pineconeIndex.upsert({ records: vectors });
 
-    console.log('Vectors stored in Pinecone');
-
     return {
-      success: true,
       totalDocs: cleanedDocs.length,
       totalVectors: vectors.length,
     };
