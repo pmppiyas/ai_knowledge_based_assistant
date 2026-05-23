@@ -4,7 +4,7 @@ import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { ENV } from 'src/common/config/env.config';
 import { OllamaEmbeddings } from '@langchain/ollama';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { PineconeStore } from '@langchain/pinecone';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class RagService {
@@ -18,16 +18,14 @@ export class RagService {
       chunkOverlap: 200,
     });
 
-    const slittedDocs = await splitter.splitDocuments(docs);
+    const splitDocs = await splitter.splitDocuments(docs);
 
-    const cleanedDocs = slittedDocs.map((doc) => ({
+    const cleanedDocs = splitDocs.map((doc) => ({
       pageContent: doc.pageContent,
       metadata: {
         source: doc.metadata.source,
-        pdf: {
-          name: doc.metadata.pdf.info.Title || 'Unknown',
-          page: doc.metadata.loc?.pageNumber,
-        },
+        pdfName: doc.metadata.pdf?.info?.Title || 'Unknown',
+        page: doc.metadata.loc?.pageNumber || 1,
       },
     }));
 
@@ -36,7 +34,35 @@ export class RagService {
       baseUrl: 'http://localhost:11434',
     });
 
-    const vector = await embeddings.embedQuery('Hello world');
+    const vectors = (
+      await Promise.all(
+        cleanedDocs.map(async (doc) => {
+          const values = await embeddings.embedQuery(doc.pageContent);
+
+          if (!values || values.length === 0) {
+            console.warn('Empty embedding for doc, skipping:', doc.metadata);
+            return null;
+          }
+
+          return {
+            id: randomUUID(),
+            values,
+            metadata: {
+              text: doc.pageContent,
+              ...doc.metadata,
+            },
+          };
+        }),
+      )
+    ).filter((v): v is NonNullable<typeof v> => v !== null);
+
+    console.log('Generated vectors:', vectors.length);
+
+    if (vectors.length === 0) {
+      throw new Error(
+        'No valid vectors generated — check your embedding model.',
+      );
+    }
 
     const pinecone = new Pinecone({
       apiKey: ENV.PINECONE_API_KEY,
@@ -44,14 +70,14 @@ export class RagService {
 
     const pineconeIndex = pinecone.Index(ENV.PINECONE_INDEX_NAME);
 
-    await PineconeStore.fromDocuments(cleanedDocs, embeddings, {
-      pineconeIndex,
-    });
+    await pineconeIndex.upsert({ records: vectors });
+
+    console.log('Vectors stored in Pinecone');
 
     return {
       success: true,
-      message: 'PDF processed successfully',
-      docs: cleanedDocs,
+      totalDocs: cleanedDocs.length,
+      totalVectors: vectors.length,
     };
   }
 }
