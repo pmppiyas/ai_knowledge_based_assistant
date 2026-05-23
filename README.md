@@ -42,8 +42,7 @@ This project is designed as a scalable backend foundation for building:
 - OpenAI
 
 ## Vector Database
-- ChromaDB
-- Pinecone (future upgrade)
+- Pinecone 
 
 ## Database
 - PostgreSQL
