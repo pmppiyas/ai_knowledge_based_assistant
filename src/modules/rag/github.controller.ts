@@ -32,8 +32,6 @@ export class GithubController {
 
     console.log('Webhook received');
 
-    console.log(body);
-
     const repo = body.repository.name;
     const owner = body.repository.owner.login;
 

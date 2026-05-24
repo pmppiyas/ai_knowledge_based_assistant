@@ -4,11 +4,50 @@ import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { ENV } from 'src/common/config/env.config';
 import { OllamaEmbeddings } from '@langchain/ollama';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { randomUUID } from 'crypto';
-import { IGithubDoc } from 'src/common/interfaces/rag.interface';
+import { generateChunkId } from 'src/common/utils/generateChunkId';
 
 @Injectable()
 export class RagService {
+  // private async storeDocuments(cleanedDocs: any[]) {
+  //   const embeddings = new OllamaEmbeddings({
+  //     model: ENV.EMBEDDING_MODEL,
+  //     baseUrl: ENV.EMBEDD_BASE_URL,
+  //   });
+
+  //   const vectors = (
+  //     await Promise.all(
+  //       cleanedDocs.map(async (doc) => {
+  //         const values = await embeddings.embedQuery(doc.pageContent);
+
+  //         if (!values || values.length === 0) {
+  //           return null;
+  //         }
+
+  //         return {
+  //           id: randomUUID(),
+  //           values,
+  //           metadata: {
+  //             text: doc.pageContent,
+  //             ...doc.metadata,
+  //           },
+  //         };
+  //       }),
+  //     )
+  //   ).filter((v): v is NonNullable<typeof v> => v !== null);
+
+  //   const pinecone = new Pinecone({
+  //     apiKey: ENV.PINECONE_API_KEY,
+  //   });
+
+  //   const pineconeIndex = pinecone.Index(ENV.PINECONE_INDEX_NAME);
+
+  //   await pineconeIndex.upsert({
+  //     records: vectors,
+  //   });
+
+  //   return vectors.length;
+  // }
+
   private async storeDocuments(cleanedDocs: any[]) {
     const embeddings = new OllamaEmbeddings({
       model: ENV.EMBEDDING_MODEL,
@@ -20,12 +59,10 @@ export class RagService {
         cleanedDocs.map(async (doc) => {
           const values = await embeddings.embedQuery(doc.pageContent);
 
-          if (!values || values.length === 0) {
-            return null;
-          }
+          if (!values || values.length === 0) return null;
 
           return {
-            id: randomUUID(),
+            id: generateChunkId(doc),
             values,
             metadata: {
               text: doc.pageContent,
@@ -40,9 +77,9 @@ export class RagService {
       apiKey: ENV.PINECONE_API_KEY,
     });
 
-    const pineconeIndex = pinecone.Index(ENV.PINECONE_INDEX_NAME);
+    const index = pinecone.Index(ENV.PINECONE_INDEX_NAME);
 
-    await pineconeIndex.upsert({
+    await index.upsert({
       records: vectors,
     });
 
@@ -61,11 +98,13 @@ export class RagService {
 
     const splitDocs = await splitter.splitDocuments(docs);
 
-    const cleanedDocs = splitDocs.map((doc) => ({
+    const cleanedDocs = splitDocs.map((doc, index) => ({
       pageContent: doc.pageContent,
       metadata: {
         type: 'pdf',
         source: doc.metadata.source,
+        file: filePath,
+        chunkIndex: index,
       },
     }));
 
@@ -80,7 +119,12 @@ export class RagService {
   async syncGithubRepo(owner: string, repo: string) {
     const filesToFetch = ['README.md', 'package.json'];
 
-    const docs: IGithubDoc[] = [];
+    const splitter = new RecursiveCharacterTextSplitter({
+      chunkSize: 1000,
+      chunkOverlap: 200,
+    });
+
+    const allChunks: any[] = [];
 
     for (const fileName of filesToFetch) {
       try {
@@ -99,30 +143,36 @@ export class RagService {
         const data = await response.json();
         const content = Buffer.from(data.content, 'base64').toString('utf-8');
 
-        docs.push({
+        const fileDoc = {
           pageContent: content,
           metadata: {
             type: 'github',
             repo: `${owner}/${repo}`,
             file: fileName,
           },
-        });
+        };
+
+        const splitDocs = await splitter.splitDocuments([fileDoc]);
+
+        const fileChunks = splitDocs.map((chunk, index) => ({
+          pageContent: chunk.pageContent,
+          metadata: {
+            type: 'github',
+            repo: `${owner}/${repo}`,
+            file: fileName,
+            chunkIndex: index,
+          },
+        }));
+
+        allChunks.push(...fileChunks);
       } catch (err) {
-        console.warn(`Failed to fetch ${fileName} from ${owner}/${repo}:`, err);
-        continue;
+        console.warn(`Failed to fetch ${fileName}:`, err);
       }
     }
 
-    const splitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 1000,
-      chunkOverlap: 200,
-    });
+    const total = await this.storeDocuments(allChunks);
 
-    const splitDocs = await splitter.splitDocuments(docs);
-
-    const total = await this.storeDocuments(splitDocs);
-
-    console.log(`Synced GitHub repo ${owner}/${repo} with ${total} vectors`);
+    console.log(`Synced ${owner}/${repo} → ${total} vectors`);
 
     return {
       success: true,

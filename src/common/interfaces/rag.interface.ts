@@ -4,5 +4,6 @@ export interface IGithubDoc {
     type: string;
     repo: string;
     file: string;
+    chunkIndex?: number;
   };
 }
