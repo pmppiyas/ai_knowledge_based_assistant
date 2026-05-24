@@ -10,6 +10,11 @@ const envSchema = z.object({
   PINECONE_API_KEY: z.string().min(1, 'PINECONE_API_KEY is required'),
   PINECONE_INDEX_NAME: z.string().min(1, 'PINECONE_INDEX_NAME is required'),
   GITHUB_TOKEN: z.string().min(1, 'GITHUB_TOKEN is required'),
+  GITHUB_APP_CLIENT_ID: z.string().min(1, 'GITHUB_APP_CLIENT_ID is required'),
+  GITHUB_APP_CLIENT_SECRET: z
+    .string()
+    .min(1, 'GITHUB_APP_CLIENT_SECRET is required'),
+  GITHUB_WEBHOOK_SECRET: z.string().min(1, 'GITHUB_WEBHOOK_SECRET is required'),
 });
 
 const parsedEnv = envSchema.parse(process.env);
@@ -24,5 +29,8 @@ export const ENV = {
   PINECONE_API_KEY: parsedEnv.PINECONE_API_KEY,
   PINECONE_INDEX_NAME: parsedEnv.PINECONE_INDEX_NAME,
   GITHUB_TOKEN: parsedEnv.GITHUB_TOKEN,
+  GITHUB_APP_CLIENT_ID: parsedEnv.GITHUB_APP_CLIENT_ID,
+  GITHUB_APP_CLIENT_SECRET: parsedEnv.GITHUB_APP_CLIENT_SECRET,
+  GITHUB_WEBHOOK_SECRET: parsedEnv.GITHUB_WEBHOOK_SECRET,
 };
-``
+``;
