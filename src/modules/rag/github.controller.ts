@@ -7,6 +7,10 @@ export class GithubController {
 
   @Post('webhook')
   async githubWebhook(@Body() body: any) {
+    console.log('Webhook received');
+
+    console.log(body);
+
     const repo = body.repository.name;
     const owner = body.repository.owner.login;
 
@@ -14,7 +18,6 @@ export class GithubController {
 
     return {
       success: true,
-      message: `GitHub repository synced successfully`,
     };
   }
 }
