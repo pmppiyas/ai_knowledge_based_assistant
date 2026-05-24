@@ -9,6 +9,7 @@ const envSchema = z.object({
   EMBEDD_BASE_URL: z.string().min(1, 'EMBEDD_BASE_URL is required'),
   PINECONE_API_KEY: z.string().min(1, 'PINECONE_API_KEY is required'),
   PINECONE_INDEX_NAME: z.string().min(1, 'PINECONE_INDEX_NAME is required'),
+  GITHUB_TOKEN: z.string().min(1, 'GITHUB_TOKEN is required'),
 });
 
 const parsedEnv = envSchema.parse(process.env);
@@ -22,4 +23,6 @@ export const ENV = {
   BASE_URL: parsedEnv.BASE_URL,
   PINECONE_API_KEY: parsedEnv.PINECONE_API_KEY,
   PINECONE_INDEX_NAME: parsedEnv.PINECONE_INDEX_NAME,
+  GITHUB_TOKEN: parsedEnv.GITHUB_TOKEN,
 };
+``
