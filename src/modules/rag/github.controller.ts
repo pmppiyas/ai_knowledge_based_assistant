@@ -39,7 +39,7 @@ export class GithubController {
       return { success: false };
     }
 
-    await this.ragService.syncGithubRepo(owner, repo);
+    await this.ragService.syncAllTargetedRepos(owner);
 
     return {
       success: true,
