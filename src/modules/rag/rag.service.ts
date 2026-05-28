@@ -3,51 +3,12 @@ import { Injectable } from '@nestjs/common';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { ENV } from 'src/common/config/env.config';
 import { OllamaEmbeddings } from '@langchain/ollama';
-import { Pinecone } from '@pinecone-database/pinecone';
+import { pineconeIndex } from 'src/common/config/pinecone.config';
 import { generateChunkId } from 'src/common/utils/generateChunkId';
+import { getAllRepos } from 'src/common/utils/getAllRepos';
 
 @Injectable()
 export class RagService {
-  // private async storeDocuments(cleanedDocs: any[]) {
-  //   const embeddings = new OllamaEmbeddings({
-  //     model: ENV.EMBEDDING_MODEL,
-  //     baseUrl: ENV.EMBEDD_BASE_URL,
-  //   });
-
-  //   const vectors = (
-  //     await Promise.all(
-  //       cleanedDocs.map(async (doc) => {
-  //         const values = await embeddings.embedQuery(doc.pageContent);
-
-  //         if (!values || values.length === 0) {
-  //           return null;
-  //         }
-
-  //         return {
-  //           id: randomUUID(),
-  //           values,
-  //           metadata: {
-  //             text: doc.pageContent,
-  //             ...doc.metadata,
-  //           },
-  //         };
-  //       }),
-  //     )
-  //   ).filter((v): v is NonNullable<typeof v> => v !== null);
-
-  //   const pinecone = new Pinecone({
-  //     apiKey: ENV.PINECONE_API_KEY,
-  //   });
-
-  //   const pineconeIndex = pinecone.Index(ENV.PINECONE_INDEX_NAME);
-
-  //   await pineconeIndex.upsert({
-  //     records: vectors,
-  //   });
-
-  //   return vectors.length;
-  // }
-
   private async storeDocuments(cleanedDocs: any[]) {
     const embeddings = new OllamaEmbeddings({
       model: ENV.EMBEDDING_MODEL,
@@ -59,10 +20,12 @@ export class RagService {
         cleanedDocs.map(async (doc) => {
           const values = await embeddings.embedQuery(doc.pageContent);
 
-          if (!values || values.length === 0) return null;
+          if (!values || values.length === 0) {
+            return null;
+          }
 
           return {
-            id: generateChunkId(doc),
+            id: doc.id,
             values,
             metadata: {
               text: doc.pageContent,
@@ -73,17 +36,40 @@ export class RagService {
       )
     ).filter((v): v is NonNullable<typeof v> => v !== null);
 
-    const pinecone = new Pinecone({
-      apiKey: ENV.PINECONE_API_KEY,
-    });
+    if (vectors.length === 0) {
+      console.log('No new vectors to store.\n');
+      return 0;
+    }
 
-    const index = pinecone.Index(ENV.PINECONE_INDEX_NAME);
-
-    await index.upsert({
+    await pineconeIndex.upsert({
       records: vectors,
     });
 
     return vectors.length;
+  }
+
+  private async filterExistingChunks(
+    chunks: Array<{
+      id: string;
+      pageContent: string;
+      metadata: any;
+    }>,
+  ) {
+    const ids = chunks.map((c) => c.id);
+
+    const existing = await pineconeIndex.fetch({
+      ids,
+    });
+
+    const existingIds = new Set(Object.keys(existing.records ?? {}));
+
+    const newChunks = chunks.filter((c) => !existingIds.has(c.id));
+
+    console.log(
+      `Duplicate check → total: ${chunks.length}, already exists: ${existingIds.size}, new: ${newChunks.length}`,
+    );
+
+    return newChunks;
   }
 
   async processPdf(filePath: string) {
@@ -99,6 +85,7 @@ export class RagService {
     const splitDocs = await splitter.splitDocuments(docs);
 
     const cleanedDocs = splitDocs.map((doc, index) => ({
+      id: generateChunkId('pdf', filePath, 'pdf', index),
       pageContent: doc.pageContent,
       metadata: {
         type: 'pdf',
@@ -110,9 +97,49 @@ export class RagService {
 
     const total = await this.storeDocuments(cleanedDocs);
 
+    console.log('\n=================================');
+    console.log('PDF processing completed');
+    console.log(`Stored vectors: ${total}`);
+    console.log('=================================\n');
+
     return {
       success: true,
       total,
+    };
+  }
+
+  async syncAllTargetedRepos(owner: string) {
+    const allRepos = await getAllRepos(owner);
+
+    const targetedRepos = allRepos.slice(0, -50);
+
+    let grandTotal = 0;
+
+    console.log('\n=================================');
+    console.log(`Starting sync for ${owner}`);
+    console.log(`Target repos: ${targetedRepos.length}`);
+    console.log('=================================\n');
+
+    for (const repoObj of targetedRepos) {
+      const repo = repoObj.name;
+
+      console.log(`Syncing ${owner}/${repo}...`);
+
+      const result = await this.syncGithubRepo(owner, repo);
+
+      grandTotal += result.total;
+
+      console.log('');
+    }
+
+    console.log('=================================');
+    console.log('MISSION SUCCESSFUL 🚀');
+    console.log(`Total new vectors stored: ${grandTotal}`);
+    console.log('=================================\n');
+
+    return {
+      success: true,
+      grandTotal,
     };
   }
 
@@ -124,7 +151,11 @@ export class RagService {
       chunkOverlap: 200,
     });
 
-    const allChunks: any[] = [];
+    const allChunks: Array<{
+      id: string;
+      pageContent: string;
+      metadata: any;
+    }> = [];
 
     for (const fileName of filesToFetch) {
       try {
@@ -141,7 +172,14 @@ export class RagService {
         if (!response.ok) continue;
 
         const data = await response.json();
+
+        if (!data.content || data.encoding !== 'base64') {
+          continue;
+        }
+
         const content = Buffer.from(data.content, 'base64').toString('utf-8');
+
+        if (!content.trim()) continue;
 
         const fileDoc = {
           pageContent: content,
@@ -155,6 +193,7 @@ export class RagService {
         const splitDocs = await splitter.splitDocuments([fileDoc]);
 
         const fileChunks = splitDocs.map((chunk, index) => ({
+          id: generateChunkId(owner, repo, fileName, index),
           pageContent: chunk.pageContent,
           metadata: {
             type: 'github',
@@ -166,13 +205,33 @@ export class RagService {
 
         allChunks.push(...fileChunks);
       } catch (err) {
-        console.warn(`Failed to fetch ${fileName}:`, err);
+        console.warn(`Failed to fetch ${fileName} from ${owner}/${repo}:`, err);
       }
     }
 
-    const total = await this.storeDocuments(allChunks);
+    if (allChunks.length === 0) {
+      console.log(`No content found for ${owner}/${repo}, skipping.`);
 
-    console.log(`Synced ${owner}/${repo} → ${total} vectors`);
+      return {
+        success: true,
+        total: 0,
+      };
+    }
+
+    const newChunks = await this.filterExistingChunks(allChunks);
+
+    if (newChunks.length === 0) {
+      console.log(`${owner}/${repo} → all chunks already indexed, skipping.`);
+
+      return {
+        success: true,
+        total: 0,
+      };
+    }
+
+    const total = await this.storeDocuments(newChunks);
+
+    console.log(`Synced ${owner}/${repo} → ${total} new vectors stored`);
 
     return {
       success: true,
