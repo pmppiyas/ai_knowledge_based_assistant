@@ -2,27 +2,36 @@ import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import { Injectable } from '@nestjs/common';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { ENV } from 'src/common/config/env.config';
-import { OllamaEmbeddings } from '@langchain/ollama';
 import { pineconeIndex } from 'src/common/config/pinecone.config';
 import { generateChunkId } from 'src/common/utils/generateChunkId';
 import { getAllRepos } from 'src/common/utils/getAllRepos';
-
 @Injectable()
 export class RagService {
-  private async storeDocuments(cleanedDocs: any[]) {
-    const embeddings = new OllamaEmbeddings({
-      model: ENV.EMBEDDING_MODEL,
-      baseUrl: ENV.EMBEDD_BASE_URL,
+  private async getEmbedding(text: string): Promise<number[]> {
+    const response = await fetch(`${ENV.EMBEDD_BASE_URL}/embeddings`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ENV.APIKEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'http://localhost:5000',
+        'X-Title': 'My App',
+      },
+      body: JSON.stringify({
+        model: ENV.EMBEDDING_MODEL,
+        input: text,
+      }),
     });
 
+    const json = await response.json();
+    return json?.data?.[0]?.embedding ?? null;
+  }
+
+  private async storeDocuments(cleanedDocs: any[]) {
     const vectors = (
       await Promise.all(
         cleanedDocs.map(async (doc) => {
-          const values = await embeddings.embedQuery(doc.pageContent);
-
-          if (!values || values.length === 0) {
-            return null;
-          }
+          const values = await this.getEmbedding(doc.pageContent);
+          if (!values || values.length === 0) return null;
 
           return {
             id: doc.id,
@@ -41,10 +50,7 @@ export class RagService {
       return 0;
     }
 
-    await pineconeIndex.upsert({
-      records: vectors,
-    });
-
+    await pineconeIndex.upsert({ records: vectors });
     return vectors.length;
   }
 
