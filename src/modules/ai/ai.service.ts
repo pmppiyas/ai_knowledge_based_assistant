@@ -1,23 +1,54 @@
-import { ChatOllama, OllamaEmbeddings } from '@langchain/ollama';
-import { PineconeStore } from '@langchain/pinecone';
 import { Injectable } from '@nestjs/common';
+import { ChatOpenAI } from '@langchain/openai';
+import { PineconeStore } from '@langchain/pinecone';
 import { ENV } from 'src/common/config/env.config';
 import { pineconeIndex } from 'src/common/config/pinecone.config';
 import { generatePrompt } from 'src/common/config/prompt/generatePromt';
 
 @Injectable()
 export class AiService {
-  private model = new ChatOllama({
+  private model = new ChatOpenAI({
     model: ENV.MODEL,
-    baseUrl: ENV.BASE_URL,
+    apiKey: ENV.APIKEY,
+    configuration: {
+      baseURL: ENV.BASE_URL,
+      defaultHeaders: {
+        'HTTP-Referer': 'http://localhost:5000',
+        'X-Title': 'My App',
+      },
+    },
     temperature: 0.5,
   });
 
-  async ask(question: string): Promise<string> {
-    const embeddings = new OllamaEmbeddings({
-      model: ENV.EMBEDDING_MODEL,
-      baseUrl: ENV.EMBEDD_BASE_URL,
+  private async getEmbedding(text: string): Promise<number[]> {
+    const response = await fetch(`${ENV.EMBEDD_BASE_URL}/embeddings`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${ENV.APIKEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'http://localhost:5000',
+        'X-Title': 'My App',
+      },
+      body: JSON.stringify({
+        model: ENV.EMBEDDING_MODEL,
+        input: text,
+      }),
     });
+
+    const json = await response.json();
+    return json?.data?.[0]?.embedding ?? null;
+  }
+
+  async ask(question: string): Promise<string> {
+    const embeddings = {
+      embedDocuments: async (texts: string[]) => {
+        return Promise.all(texts.map((text) => this.getEmbedding(text)));
+      },
+
+      embedQuery: async (text: string) => {
+        return this.getEmbedding(text);
+      },
+    };
 
     const vectorStore = await PineconeStore.fromExistingIndex(embeddings, {
       pineconeIndex,
@@ -37,10 +68,8 @@ export class AiService {
 
     const response = await this.model.invoke(prompt);
 
-    if (typeof response.content === 'string') {
-      return response.content;
-    }
-
-    return JSON.stringify(response.content);
+    return typeof response.content === 'string'
+      ? response.content
+      : JSON.stringify(response.content);
   }
 }
