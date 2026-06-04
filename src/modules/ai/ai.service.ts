@@ -1,23 +1,26 @@
 import { Injectable } from '@nestjs/common';
+import { ChatOllama } from '@langchain/ollama';
 import { ChatOpenAI } from '@langchain/openai';
 import { PineconeStore } from '@langchain/pinecone';
-import { ENV } from 'src/common/config/env.config';
 import { pineconeIndex } from 'src/common/config/pinecone.config';
 import { generatePrompt } from 'src/common/config/prompt/generatePromt';
+import { ENV } from 'src/common/config/env.config';
 
 @Injectable()
 export class AiService {
+  // private model = new ChatOllama({
+  //   model: ENV.MODEL,
+  //   temperature: 0.5,
+  //   baseUrl: ENV.BASE_URL,
+  // });
+
   private model = new ChatOpenAI({
     model: ENV.MODEL,
+    temperature: 0.5,
     apiKey: ENV.APIKEY,
     configuration: {
       baseURL: ENV.BASE_URL,
-      defaultHeaders: {
-        'HTTP-Referer': 'http://localhost:5000',
-        'X-Title': 'My App',
-      },
     },
-    temperature: 0.5,
   });
 
   private async getEmbedding(text: string): Promise<number[]> {
@@ -35,8 +38,21 @@ export class AiService {
       }),
     });
 
+    if (!response.ok) {
+      throw new Error(
+        `Embedding API Error: ${response.status} ${response.statusText}`,
+      );
+    }
+
     const json = await response.json();
-    return json?.data?.[0]?.embedding ?? null;
+
+    const embedding = json?.data?.[0]?.embedding;
+
+    if (!embedding) {
+      throw new Error(`Invalid embedding response: ${JSON.stringify(json)}`);
+    }
+
+    return embedding;
   }
 
   async ask(question: string): Promise<string> {
@@ -60,9 +76,7 @@ export class AiService {
 
     const relevantDocs = await retriever.invoke(question);
 
-    const context = relevantDocs
-      .map((doc) => doc.pageContent.slice(0, 800))
-      .join('\n\n');
+    const context = relevantDocs.map((doc) => doc.pageContent).join('\n\n');
 
     const prompt = generatePrompt(context, question);
 
