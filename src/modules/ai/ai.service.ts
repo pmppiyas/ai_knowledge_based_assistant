@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ChatOllama } from '@langchain/ollama';
 import { ChatOpenAI } from '@langchain/openai';
 import { PineconeStore } from '@langchain/pinecone';
 import { pineconeIndex } from 'src/common/config/pinecone.config';
@@ -8,15 +7,9 @@ import { ENV } from 'src/common/config/env.config';
 
 @Injectable()
 export class AiService {
-  // private model = new ChatOllama({
-  //   model: ENV.MODEL,
-  //   temperature: 0.5,
-  //   baseUrl: ENV.BASE_URL,
-  // });
-
   private model = new ChatOpenAI({
     model: ENV.MODEL,
-    temperature: 0.5,
+    temperature: 0.2,
     apiKey: ENV.APIKEY,
     configuration: {
       baseURL: ENV.BASE_URL,
