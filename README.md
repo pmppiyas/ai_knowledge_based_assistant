@@ -15,6 +15,7 @@
 AI Knowledge Base Assistant is a modern RAG-based AI system that allows users to:
 
 - Upload PDFs and documents
+- Sync repo from github
 - Generate embeddings
 - Store vectors in a vector database
 - Retrieve relevant knowledge
