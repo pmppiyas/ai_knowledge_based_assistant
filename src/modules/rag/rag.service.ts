@@ -106,7 +106,7 @@ export class RagService {
     console.log('\n=================================');
     console.log('PDF processing completed');
     console.log(`Stored vectors: ${total}`);
-    console.log('=================================\n');
+    console.log('==================================\n');
 
     return {
       success: true,
