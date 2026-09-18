@@ -5,6 +5,9 @@ import { ENV } from 'src/common/config/env.config';
 import { pineconeIndex } from 'src/common/config/pinecone.config';
 import { generateChunkId } from 'src/common/utils/generateChunkId';
 import { getAllRepos } from 'src/common/utils/getAllRepos';
+import * as fs from 'fs';
+import * as path from 'path';
+
 @Injectable()
 export class RagService {
   private async getEmbedding(text: string): Promise<number[]> {
@@ -90,12 +93,13 @@ export class RagService {
 
     const splitDocs = await splitter.splitDocuments(docs);
 
+    // Use a stable ID for CV chunks so re-uploading updates in-place instead of creating duplicates
     const cleanedDocs = splitDocs.map((doc, index) => ({
-      id: generateChunkId('pdf', filePath, 'pdf', index),
+      id: generateChunkId('pdf', 'resume', 'cv', index),
       pageContent: doc.pageContent,
       metadata: {
         type: 'pdf',
-        source: doc.metadata.source,
+        source: 'resume',
         file: filePath,
         chunkIndex: index,
       },
@@ -117,7 +121,8 @@ export class RagService {
   async syncAllTargetedRepos(owner: string) {
     const allRepos = await getAllRepos(owner);
 
-    const targetedRepos = allRepos.slice(0, -50);
+    // Fix: Take up to 50 repos instead of slice(0, -50)
+    const targetedRepos = allRepos.slice(0, 50);
 
     let grandTotal = 0;
 
@@ -183,12 +188,53 @@ export class RagService {
           continue;
         }
 
-        const content = Buffer.from(data.content, 'base64').toString('utf-8');
+        let content = Buffer.from(data.content, 'base64').toString('utf-8');
 
         if (!content.trim()) continue;
 
+        // Filter boilerplate Next.js / create-next-app README files
+        if (fileName === 'README.md') {
+          const isNextBoilerplate =
+            content.includes('bootstrapped with [`create-next-app`]') ||
+            content.includes('bootstrapped with [create-next-app]') ||
+            (content.includes('Deploy on Vercel') &&
+              content.includes('The easiest way to deploy your Next.js app'));
+
+          if (isNextBoilerplate) {
+            const cleanedContent = content
+              .replace(/## Getting Started[\s\S]*?(?=##|$)/gi, '')
+              .replace(/## Deploy on Vercel[\s\S]*?(?=##|$)/gi, '')
+              .replace(/## Learn More[\s\S]*?(?=##|$)/gi, '')
+              .replace(
+                /This is a \[Next\.js\]\(https:\/\/nextjs\.org\).*?create-next-app\./gi,
+                '',
+              )
+              .trim();
+
+            if (cleanedContent.length < 50) {
+              console.log(
+                `Skipping default Next.js boilerplate README for ${owner}/${repo}`,
+              );
+              continue;
+            }
+            content = cleanedContent;
+          }
+        }
+
+        // Format package.json into clear, structured project information
+        if (fileName === 'package.json') {
+          try {
+            const pkg = JSON.parse(content);
+            const deps = Object.keys(pkg.dependencies || {}).join(', ');
+            content = `Project Name: ${pkg.name || repo}\nDescription: ${pkg.description || 'Project by Prince Mahmud Piyas'}\nKey Technologies & Dependencies: ${deps || 'None'}`;
+          } catch {
+            // Keep content as is if not valid JSON
+          }
+        }
+
+        // Prefix content with repository name to keep vector embedding grounded in project context
         const fileDoc = {
-          pageContent: content,
+          pageContent: `Repository: ${owner}/${repo}\nFile: ${fileName}\n\n${content}`,
           metadata: {
             type: 'github',
             repo: `${owner}/${repo}`,
@@ -243,5 +289,51 @@ export class RagService {
       success: true,
       total,
     };
+  }
+
+  async clearIndex() {
+    try {
+      await pineconeIndex.deleteAll();
+      console.log('Pinecone index cleared successfully.');
+      return {
+        success: true,
+        message: 'Pinecone index cleared successfully',
+      };
+    } catch (err: any) {
+      console.error('Failed to clear Pinecone index:', err);
+      return {
+        success: false,
+        error: err.message,
+      };
+    }
+  }
+
+  async reindexLatestPdf() {
+    const uploadsDir = './uploads';
+    if (!fs.existsSync(uploadsDir)) {
+      return { success: false, message: 'Uploads directory not found' };
+    }
+
+    const files = fs.readdirSync(uploadsDir);
+    if (files.length === 0) {
+      return { success: false, message: 'No files in uploads directory' };
+    }
+
+    const validFiles = files
+      .map((file) => ({
+        file,
+        time: fs.statSync(path.join(uploadsDir, file)).mtime.getTime(),
+        size: fs.statSync(path.join(uploadsDir, file)).size,
+      }))
+      .filter((f) => f.size > 0)
+      .sort((a, b) => b.time - a.time);
+
+    if (validFiles.length === 0) {
+      return { success: false, message: 'No valid files in uploads' };
+    }
+
+    const targetFile = path.join(uploadsDir, validFiles[0].file);
+    console.log(`Reindexing latest PDF file: ${targetFile}`);
+    return this.processPdf(targetFile);
   }
 }

@@ -7,10 +7,11 @@ export class AiController {
 
   @Get('ask')
   async ask(@Query('question') question: string) {
-    const answer = await this.aiService.ask(question);
+    const result = await this.aiService.ask(question);
 
     return {
-      answer,
+      answer: result.answer,
+      sources: result.sources,
     };
   }
 }

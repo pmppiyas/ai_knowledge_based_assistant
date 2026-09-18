@@ -8,8 +8,13 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.enableCors({
-    origin: ['https://pmppiyas.vercel.app/'],
-    methods: ['GET'],
+    origin: [
+      'https://pmppiyas.vercel.app',
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://localhost:5173',
+    ],
+    methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true,
   });
 

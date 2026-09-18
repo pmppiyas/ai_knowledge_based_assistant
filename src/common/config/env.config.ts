@@ -1,7 +1,9 @@
 import { z } from 'zod';
+import * as dotenv from 'dotenv';
+dotenv.config();
 
 const envSchema = z.object({
-  PORT: z.string().min(1, 'PORT is required'),
+  PORT: z.string().optional().default('5000'),
   MODEL: z.string().min(1, 'MODEL is required'),
   APIKEY: z.string().min(1, 'APIKEY is required'),
   BASE_URL: z.string().min(1, 'BASE_URL is required'),
