@@ -13,16 +13,24 @@ export const getAllRepos = async (owner: string): Promise<any[]> => {
     headers.Authorization = `Bearer ${ENV.GITHUB_TOKEN}`;
   }
 
+  let activeHeaders = { ...headers };
+
   while (page <= 5) {
     try {
-      // First try authenticated /user/repos to get both public and private repos owned by the account
       let url = `https://api.github.com/user/repos?page=${page}&per_page=100&sort=updated&affiliation=owner`;
-      let res = await fetch(url, { headers });
+      let res = await fetch(url, { headers: activeHeaders });
 
-      // If token does not match user or lacks scope, fallback to public repos of owner
-      if (!res.ok) {
+      // If token is invalid/expired (401 Bad credentials), strip Authorization and fallback to public repos
+      if (res.status === 401 && activeHeaders.Authorization) {
+        console.warn(
+          `[GitHub Token Warning] Token returned 401 Unauthorized (expired or invalid). Continuing with public access for ${owner}...`,
+        );
+        delete activeHeaders.Authorization;
         url = `https://api.github.com/users/${owner}/repos?page=${page}&per_page=100&sort=updated`;
-        res = await fetch(url, { headers });
+        res = await fetch(url, { headers: activeHeaders });
+      } else if (!res.ok) {
+        url = `https://api.github.com/users/${owner}/repos?page=${page}&per_page=100&sort=updated`;
+        res = await fetch(url, { headers: activeHeaders });
       }
 
       if (!res.ok) {
@@ -54,4 +62,3 @@ export const getAllRepos = async (owner: string): Promise<any[]> => {
   );
   return allRepos;
 };
-

@@ -211,10 +211,23 @@ export class RagService {
 
     for (const fileName of filesToFetch) {
       try {
-        const response = await fetch(
+        let fetchHeaders: Record<string, string> = { ...headers };
+        let response = await fetch(
           `https://api.github.com/repos/${owner}/${repo}/contents/${fileName}`,
-          { headers },
+          { headers: fetchHeaders },
         );
+
+        // If token returned 401 Bad credentials, retry without token for public repos
+        if (response.status === 401 && fetchHeaders.Authorization) {
+          console.warn(
+            `[GitHub Token Warning] 401 Unauthorized for ${owner}/${repo} ${fileName}. Retrying without token...`,
+          );
+          delete fetchHeaders.Authorization;
+          response = await fetch(
+            `https://api.github.com/repos/${owner}/${repo}/contents/${fileName}`,
+            { headers: fetchHeaders },
+          );
+        }
 
         if (!response.ok) {
           if (response.status !== 404) {
