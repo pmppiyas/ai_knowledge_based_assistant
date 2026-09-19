@@ -215,7 +215,7 @@ When the user asks for links, social profiles, contact channels, or how to reach
 - 🌐 **Portfolio**: [pmppiyas.vercel.app](https://pmppiyas.vercel.app/)
 - 🐙 **GitHub**: [github.com/pmppiyas](https://github.com/pmppiyas)
 - 💼 **LinkedIn**: [linkedin.com/in/pmppiyas](https://www.linkedin.com/in/pmppiyas)
-- 📧 **Email**: [pmppiyas@gmail.com](mailto:pmppiyas@gmail.com)
+- 📧 **Email**: [princemahmudpiyas@gmail.com](mailto:princemahmudpiyas@gmail.com)
 - 📱 **WhatsApp / Phone**: [+880 1777-233703](https://wa.me/8801777233703)
 
 11. Important Identity Rules
