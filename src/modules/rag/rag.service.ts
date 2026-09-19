@@ -60,7 +60,9 @@ export class RagService {
       );
 
       try {
-        const indexDescription = await pinecone.describeIndex(ENV.PINECONE_INDEX_NAME);
+        const indexDescription = await pinecone.describeIndex(
+          ENV.PINECONE_INDEX_NAME,
+        );
         console.log(
           `[Pinecone Index Info] Index "${ENV.PINECONE_INDEX_NAME}" dimension: ${indexDescription.dimension}`,
         );
@@ -120,7 +122,6 @@ export class RagService {
 
     const splitDocs = await splitter.splitDocuments(docs);
 
-    // Use a stable ID for CV chunks so re-uploading updates in-place instead of creating duplicates
     const cleanedDocs = splitDocs.map((doc, index) => ({
       id: generateChunkId('pdf', 'resume', 'cv', index),
       pageContent: doc.pageContent,
@@ -145,10 +146,9 @@ export class RagService {
     };
   }
 
-  async syncAllTargetedRepos(owner: string) {
+  async syncAllTargetedRepos(owner: string, forceUpdate: boolean = false) {
     const allRepos = await getAllRepos(owner);
 
-    // Fix: Take up to 50 repos instead of slice(0, -50)
     const targetedRepos = allRepos.slice(0, 50);
 
     let grandTotal = 0;
@@ -163,7 +163,7 @@ export class RagService {
 
       console.log(`Syncing ${owner}/${repo}...`);
 
-      const result = await this.syncGithubRepo(owner, repo);
+      const result = await this.syncGithubRepo(owner, repo, forceUpdate);
 
       grandTotal += result.total;
 
@@ -172,16 +172,21 @@ export class RagService {
 
     console.log('=================================');
     console.log('MISSION SUCCESSFUL 🚀');
-    console.log(`Total new vectors stored: ${grandTotal}`);
+    console.log(`Total new/updated vectors stored: ${grandTotal}`);
     console.log('=================================\n');
 
     return {
       success: true,
       grandTotal,
+      reposProcessed: targetedRepos.length,
     };
   }
 
-  async syncGithubRepo(owner: string, repo: string) {
+  async syncGithubRepo(
+    owner: string,
+    repo: string,
+    forceUpdate: boolean = false,
+  ) {
     const filesToFetch = ['README.md', 'package.json'];
 
     const splitter = new RecursiveCharacterTextSplitter({
@@ -195,19 +200,31 @@ export class RagService {
       metadata: any;
     }> = [];
 
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'PrinceMahmudPiyas-Portfolio-Assistant',
+    };
+
+    if (ENV.GITHUB_TOKEN) {
+      headers.Authorization = `Bearer ${ENV.GITHUB_TOKEN}`;
+    }
+
     for (const fileName of filesToFetch) {
       try {
         const response = await fetch(
           `https://api.github.com/repos/${owner}/${repo}/contents/${fileName}`,
-          {
-            headers: {
-              Authorization: `token ${ENV.GITHUB_TOKEN}`,
-              Accept: 'application/vnd.github+json',
-            },
-          },
+          { headers },
         );
 
-        if (!response.ok) continue;
+        if (!response.ok) {
+          if (response.status !== 404) {
+            const errText = await response.text();
+            console.warn(
+              `[GitHub Repo File Fetch] ${owner}/${repo} ${fileName} returned HTTP ${response.status}: ${errText}`,
+            );
+          }
+          continue;
+        }
 
         const data = await response.json();
 
@@ -219,7 +236,6 @@ export class RagService {
 
         if (!content.trim()) continue;
 
-        // Filter boilerplate Next.js / create-next-app README files
         if (fileName === 'README.md') {
           const isNextBoilerplate =
             content.includes('bootstrapped with [`create-next-app`]') ||
@@ -248,18 +264,14 @@ export class RagService {
           }
         }
 
-        // Format package.json into clear, structured project information
         if (fileName === 'package.json') {
           try {
             const pkg = JSON.parse(content);
             const deps = Object.keys(pkg.dependencies || {}).join(', ');
             content = `Project Name: ${pkg.name || repo}\nDescription: ${pkg.description || 'Project by Prince Mahmud Piyas'}\nKey Technologies & Dependencies: ${deps || 'None'}`;
-          } catch {
-            // Keep content as is if not valid JSON
-          }
+          } catch {}
         }
 
-        // Prefix content with repository name to keep vector embedding grounded in project context
         const fileDoc = {
           pageContent: `Repository: ${owner}/${repo}\nFile: ${fileName}\n\n${content}`,
           metadata: {
@@ -283,8 +295,11 @@ export class RagService {
         }));
 
         allChunks.push(...fileChunks);
-      } catch (err) {
-        console.warn(`Failed to fetch ${fileName} from ${owner}/${repo}:`, err);
+      } catch (err: any) {
+        console.warn(
+          `Failed to fetch ${fileName} from ${owner}/${repo}:`,
+          err?.message || err,
+        );
       }
     }
 
@@ -297,20 +312,25 @@ export class RagService {
       };
     }
 
-    const newChunks = await this.filterExistingChunks(allChunks);
+    let chunksToStore = allChunks;
+    if (!forceUpdate) {
+      chunksToStore = await this.filterExistingChunks(allChunks);
 
-    if (newChunks.length === 0) {
-      console.log(`${owner}/${repo} → all chunks already indexed, skipping.`);
+      if (chunksToStore.length === 0) {
+        console.log(`${owner}/${repo} → all chunks already indexed, skipping.`);
 
-      return {
-        success: true,
-        total: 0,
-      };
+        return {
+          success: true,
+          total: 0,
+        };
+      }
     }
 
-    const total = await this.storeDocuments(newChunks);
+    const total = await this.storeDocuments(chunksToStore);
 
-    console.log(`Synced ${owner}/${repo} → ${total} new vectors stored`);
+    console.log(
+      `Synced ${owner}/${repo} → ${total} new/updated vectors stored`,
+    );
 
     return {
       success: true,

@@ -75,19 +75,58 @@ export class RagController {
     };
   }
 
+  @Get('sync-repo')
+  async syncRepoGet(
+    @Query('owner') owner?: string,
+    @Query('repo') repo?: string,
+  ) {
+    const targetOwner = owner || 'pmppiyas';
+    if (!repo) {
+      return {
+        success: false,
+        message: 'repo query parameter is required (e.g. ?repo=web)',
+      };
+    }
+    const result = await this.ragService.syncGithubRepo(
+      targetOwner,
+      repo,
+      true,
+    );
+    return {
+      success: true,
+      message: `GitHub repo ${targetOwner}/${repo} synced successfully`,
+      data: result,
+    };
+  }
+
+  @Post('sync-repo')
+  async syncRepoPost(
+    @Query('owner') owner?: string,
+    @Query('repo') repo?: string,
+  ) {
+    return this.syncRepoGet(owner, repo);
+  }
+
+  @Get('reset-and-sync')
+  async resetAndSyncGet(@Query('owner') owner?: string) {
+    return this.resetAndSync(owner);
+  }
+
   @Post('reset-and-sync')
   async resetAndSync(@Query('owner') owner?: string) {
     const targetOwner = owner || 'pmppiyas';
-    console.log(`[Reset & Sync] Starting full reset and clean sync for ${targetOwner}...`);
-    
-    // 1. Clear old/polluted vectors
+    console.log(
+      `[Reset & Sync] Starting full reset and clean sync for ${targetOwner}...`,
+    );
+
     await this.ragService.clearIndex();
 
-    // 2. Re-index user's CV
     const pdfResult = await this.ragService.reindexLatestPdf();
 
-    // 3. Sync GitHub repos with boilerplate filtering
-    const githubResult = await this.ragService.syncAllTargetedRepos(targetOwner);
+    const githubResult = await this.ragService.syncAllTargetedRepos(
+      targetOwner,
+      true,
+    );
 
     return {
       success: true,

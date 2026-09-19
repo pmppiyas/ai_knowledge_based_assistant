@@ -39,8 +39,6 @@ export class GithubController {
       };
     }
 
-    console.log('Valid GitHub Push webhook received');
-
     const repo = body?.repository?.name;
     const owner = body?.repository?.owner?.login;
 
@@ -48,14 +46,20 @@ export class GithubController {
       return { success: false, message: 'Missing repo or owner in payload' };
     }
 
-    // Run sync in the background so GitHub receives 200 OK immediately without timing out (<10s)
-    this.ragService.syncAllTargetedRepos(owner).catch((err) => {
-      console.error(`[Background Sync Error for ${owner}]:`, err);
+    console.log(`Valid GitHub Push webhook received for ${owner}/${repo}`);
+
+    // Directly sync the pushed repo in the background with forceUpdate=true so new commits are immediately indexed
+    (async () => {
+      console.log(`[GitHub Webhook] Starting background sync for pushed repo: ${owner}/${repo}...`);
+      const repoResult = await this.ragService.syncGithubRepo(owner, repo, true);
+      console.log(`[GitHub Webhook] Finished sync for ${owner}/${repo}:`, repoResult);
+    })().catch((err) => {
+      console.error(`[Background Sync Error for ${owner}/${repo}]:`, err);
     });
 
     return {
       success: true,
-      message: `Sync started in background for ${owner}`,
+      message: `Sync started in background for ${owner}/${repo}`,
     };
   }
 }
