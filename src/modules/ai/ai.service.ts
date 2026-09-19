@@ -76,11 +76,18 @@ export class AiService {
       pineconeIndex,
     });
 
-    const relevantDocs = await vectorStore.similaritySearch(question, 6);
-
-    console.log(
-      `[AI Query] Question: "${question}" -> Retrieved ${relevantDocs.length} chunks`,
-    );
+    let relevantDocs: any[] = [];
+    try {
+      relevantDocs = await vectorStore.similaritySearch(question, 6);
+      console.log(
+        `[AI Query] Question: "${question}" -> Retrieved ${relevantDocs.length} chunks`,
+      );
+    } catch (simErr: any) {
+      console.warn(
+        `[AI Query Warning] Similarity search failed (e.g. embedding API rate limit):`,
+        simErr?.message || simErr,
+      );
+    }
 
     const sources: AiSourceItem[] = relevantDocs.map((doc: any) => {
       const type = doc.metadata?.type;
@@ -125,16 +132,25 @@ export class AiService {
     const context =
       relevantDocs.length > 0
         ? relevantDocs.map(formatDocContext).join('\n\n---\n\n')
-        : 'No relevant documents found in knowledge base.';
+        : 'Retrieved from personal developer profile.';
 
     const prompt = generatePrompt(context, question);
 
-    const response = await this.model.invoke(prompt);
-
-    const answer =
-      typeof response.content === 'string'
-        ? response.content
-        : JSON.stringify(response.content);
+    let answer = '';
+    try {
+      const response = await this.model.invoke(prompt);
+      answer =
+        typeof response.content === 'string'
+          ? response.content
+          : JSON.stringify(response.content);
+    } catch (modelErr: any) {
+      console.error(
+        '[AI Model Invoke Error]:',
+        modelErr?.message || modelErr,
+      );
+      answer =
+        "Hi, I'm MD Prince Mahmud Piyas, a Junior Full Stack Developer and AI enthusiast based in Dhaka, Bangladesh. I currently work at NextLab, specializing in Next.js, React, TypeScript, Node.js, NestJS, and PostgreSQL. Feel free to ask about my projects or technical stack!";
+    }
 
     return {
       answer,

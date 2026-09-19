@@ -7,11 +7,26 @@ export class AiController {
 
   @Get('ask')
   async ask(@Query('question') question: string) {
-    const result = await this.aiService.ask(question);
+    if (!question || !question.trim()) {
+      return {
+        answer: "Hello! I'm Prince Mahmud Piyas. How can I help you today?",
+        sources: [],
+      };
+    }
 
-    return {
-      answer: result.answer,
-      sources: result.sources,
-    };
+    try {
+      const result = await this.aiService.ask(question);
+      return {
+        answer: result.answer,
+        sources: result.sources,
+      };
+    } catch (err: any) {
+      console.error('[AI Ask Controller Error]:', err?.message || err);
+      return {
+        answer:
+          "Hi, I'm MD Prince Mahmud Piyas, a Junior Full Stack Developer and AI enthusiast based in Dhaka, Bangladesh. I currently work at NextLab, specializing in React, Next.js, TypeScript, Node.js, NestJS, and PostgreSQL. Feel free to ask about my projects, stack, or experience!",
+        sources: [],
+      };
+    }
   }
 }
