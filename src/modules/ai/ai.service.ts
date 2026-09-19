@@ -76,7 +76,6 @@ export class AiService {
       pineconeIndex,
     });
 
-    // Retrieve top 6 most relevant chunks
     const relevantDocs = await vectorStore.similaritySearch(question, 6);
 
     console.log(

@@ -2,7 +2,7 @@ import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import { Injectable } from '@nestjs/common';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { ENV } from 'src/common/config/env.config';
-import { pineconeIndex } from 'src/common/config/pinecone.config';
+import { pinecone, pineconeIndex } from 'src/common/config/pinecone.config';
 import { generateChunkId } from 'src/common/utils/generateChunkId';
 import { getAllRepos } from 'src/common/utils/getAllRepos';
 import * as fs from 'fs';
@@ -53,8 +53,35 @@ export class RagService {
       return 0;
     }
 
-    await pineconeIndex.upsert({ records: vectors });
-    return vectors.length;
+    try {
+      const generatedDim = vectors[0]?.values?.length;
+      console.log(
+        `[Pinecone Upsert] Preparing to upsert ${vectors.length} vectors (Generated Vector Dimension: ${generatedDim})`,
+      );
+
+      try {
+        const indexDescription = await pinecone.describeIndex(ENV.PINECONE_INDEX_NAME);
+        console.log(
+          `[Pinecone Index Info] Index "${ENV.PINECONE_INDEX_NAME}" dimension: ${indexDescription.dimension}`,
+        );
+        if (indexDescription.dimension !== generatedDim) {
+          const mismatchMsg = `Dimension Mismatch Error: Pinecone Index "${ENV.PINECONE_INDEX_NAME}" is configured for ${indexDescription.dimension} dimensions, but embedding model "${ENV.EMBEDDING_MODEL}" produced ${generatedDim} dimensions!`;
+          console.error(`\n❌ [CRITICAL PINECONE ERROR] ${mismatchMsg}\n`);
+          throw new Error(mismatchMsg);
+        }
+      } catch (descErr: any) {
+        if (descErr?.message?.includes('Dimension Mismatch')) throw descErr;
+        console.warn('[Pinecone describeIndex warning]:', descErr?.message);
+      }
+
+      await pineconeIndex.upsert({ records: vectors });
+      return vectors.length;
+    } catch (err: any) {
+      console.error('❌ [Pinecone Upsert Error]:', err?.message || err);
+      if (err?.name) console.error('Error Type:', err.name);
+      if (err?.status) console.error('HTTP Status:', err.status);
+      throw err;
+    }
   }
 
   private async filterExistingChunks(
