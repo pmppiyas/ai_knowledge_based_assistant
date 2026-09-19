@@ -143,11 +143,6 @@ export class AiService {
         typeof response.content === 'string'
           ? response.content
           : JSON.stringify(response.content);
-
-      // Clean up any broken markdown links where LLM placed newline between ] and (
-      answer = answer
-        .replace(/\[([^\]]+)\]\s*\n+\s*\((https?:\/\/[^\s\)]+|mailto:[^\s\)]+)\)/g, '[$1]($2)')
-        .replace(/\[([^\]]+)\]\s+\((https?:\/\/[^\s\)]+|mailto:[^\s\)]+)\)/g, '[$1]($2)');
     } catch (modelErr: any) {
       console.error(
         '[AI Model Invoke Error]:',
